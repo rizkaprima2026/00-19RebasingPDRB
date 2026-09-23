@@ -53,13 +53,13 @@
   <header class="topbar">
     <div class="wrap">
       <div class="brand">Monitoring LK Rebasing PDRB</div>
-      <div class="subtitle">Pemantauan kelengkapan LK untuk proses rebasing Produk Domestik Regional Bruto (PDRB)</div>
+      <div class="subtitle">Pemantauan kelengkapan LK per kategori PDRB dan Kabupaten/Kota untuk proses rebasing PDRB</div>
     </div>
   </header>
 
   <main class="wrap">
     <section class="stats">
-      <div class="stat"><div class="label">Total Subkategori</div><div class="value" id="total">17</div></div>
+      <div class="stat"><div class="label">Total Target LK</div><div class="value" id="total">17</div></div>
       <div class="stat"><div class="label">Sudah Upload</div><div class="value" id="uploaded">0</div></div>
       <div class="stat"><div class="label">Belum Upload</div><div class="value" id="pending">17</div></div>
       <div class="stat"><div class="label">Progress</div><div class="value" id="progress">0%</div></div>
@@ -76,14 +76,20 @@
         <option value="pending">Belum Upload</option>
       </select>
       <button class="btn-primary" id="exportBtn">Export Rekap CSV</button>
-      <button class="btn-light" id="resetBtn">Reset Data</button>
+      <button class="btn-light" id="resetBtn">Reset Tampilan</button>
     </section>
+
+    <div class="hint" style="margin:-8px 0 14px 3px">
+      Setiap file LK dicatat secara terpisah berdasarkan kombinasi
+      <strong>Subkategori PDRB + Kabupaten/Kota</strong>.
+      Pilih Kabupaten/Kota untuk melakukan upload.
+    </div>
 
     <section class="table-card">
       <table>
         <thead>
           <tr>
-            <th>Kode</th><th>Lapangan Usaha / Subkategori PDRB</th><th>Status LK</th>
+            <th>Kode</th><th>Lapangan Usaha / Subkategori PDRB</th><th>Kabupaten/Kota</th><th>Status LK</th>
             <th>File LK</th><th>Terakhir Diperbarui</th><th>Aksi</th>
           </tr>
         </thead>
@@ -168,7 +174,7 @@ function formatDate(v){
 function showLoading(message="Memuat data..."){
   loading = true;
   document.getElementById("tbody").innerHTML =
-    `<tr><td colspan="6" class="empty">${esc(message)}</td></tr>`;
+    `<tr><td colspan="7" class="empty">${esc(message)}</td></tr>`;
 }
 
 async function apiGet(params=""){
@@ -224,7 +230,7 @@ async function loadData(){
   }catch(err){
     loading = false;
     document.getElementById("tbody").innerHTML =
-      `<tr><td colspan="6" class="empty">
+      `<tr><td colspan="7" class="empty">
         Gagal mengambil data: ${esc(err.message)}
         <br><small>Pastikan URL Web App Apps Script benar dan aksesnya "Anyone".</small>
       </td></tr>`;
@@ -250,13 +256,37 @@ function getSelectedKabupaten(){
   return document.getElementById("kabupaten")?.value || "all";
 }
 
-function getRecord(code){
-  const kab = getSelectedKabupaten();
-  if(kab === "all"){
-    // Jika semua kab/kota dipilih, cari record pertama untuk kategori tersebut.
-    return allRecords.find(r => (r["Subkategori PDRB"] || "") === code) || null;
-  }
-  return state[code + "||" + kab] || null;
+function getRecord(code, kabupaten){
+  const kab = kabupaten || getSelectedKabupaten();
+
+  if(kab === "all") return null;
+
+  return allRecords.find(r =>
+    String(r["Subkategori PDRB"] || "").trim() === String(code).trim() &&
+    String(r["Kabupaten/Kota"] || "").trim() === String(kab).trim()
+  ) || null;
+}
+
+function getKabupatenList(){
+  // Daftar Kabupaten/Kota Babel sebagai fallback.
+  // Jika Google Sheet sudah berisi data, daftar dari Sheet akan dipakai.
+  const fallback = [
+    "Bangka",
+    "Belitung",
+    "Bangka Barat",
+    "Bangka Tengah",
+    "Bangka Selatan",
+    "Belitung Timur",
+    "Pangkalpinang"
+  ];
+
+  const fromSheet = [...new Set(
+    allRecords
+      .map(r => String(r["Kabupaten/Kota"] || "").trim())
+      .filter(Boolean)
+  )];
+
+  return fromSheet.length ? fromSheet.sort() : fallback;
 }
 
 function render(){
@@ -264,73 +294,177 @@ function render(){
   const f = document.getElementById("filter").value;
   const kab = getSelectedKabupaten();
 
-  const rows = categories.filter(c=>{
-    const matchesText =
-      c[0].toLowerCase().includes(q) ||
-      c[1].toLowerCase().includes(q);
+  const totalKab = getKabupatenList().length;
 
-    const records = allRecords.filter(r =>
-      (r["Subkategori PDRB"] || "") === c[0] &&
-      (kab === "all" || (r["Kabupaten/Kota"] || "") === kab)
-    );
+  // Satu baris = satu kombinasi Subkategori PDRB + Kabupaten/Kota.
+  const combinations = [];
 
-    const uploaded = records.some(r =>
-      ["aktif","sudah upload","diperbarui"].includes(
-        String(r["Status"] || "").toLowerCase()
-      ) && r["File URL"]
-    );
+  categories.forEach(c => {
+    const kabList = kab === "all" ? getKabupatenList() : [kab];
 
-    return matchesText &&
-      (f==="all" || (f==="uploaded" && uploaded) || (f==="pending" && !uploaded));
+    kabList.forEach(k => {
+      const item = getRecord(c[0], k);
+      const uploaded = !!(item && item["File URL"]);
+
+      const matchesText =
+        c[0].toLowerCase().includes(q) ||
+        c[1].toLowerCase().includes(q) ||
+        k.toLowerCase().includes(q);
+
+      if(!matchesText) return;
+
+      if(
+        f === "uploaded" && !uploaded ||
+        f === "pending" && uploaded
+      ) return;
+
+      combinations.push({
+        code: c[0],
+        name: c[1],
+        kabupaten: k,
+        item,
+        uploaded
+      });
+    });
   });
 
-  document.getElementById("empty").style.display = rows.length ? "none" : "block";
+  document.getElementById("empty").style.display =
+    combinations.length ? "none" : "block";
 
-  document.getElementById("tbody").innerHTML = rows.map(c=>{
-    const item = getRecord(c[0]);
-    const ok = !!(item && item["File URL"]);
+  document.getElementById("tbody").innerHTML = combinations.map(row => {
+    const item = row.item;
+    const ok = row.uploaded;
     const status = item?.["Status"] || (ok ? "Aktif" : "Belum Upload");
 
+    const safeCode = encodeURIComponent(row.code);
+    const safeKab = encodeURIComponent(row.kabupaten);
+
     return `<tr>
-      <td class="code">${esc(c[0])}</td>
+      <td class="code">${esc(row.code)}</td>
+
       <td>
-        <div class="category">${esc(c[1])}</div>
-        <div class="desc">${esc(item?.["Kabupaten/Kota"] || (kab==="all" ? "Pilih Kabupaten/Kota untuk upload" : kab))}</div>
+        <div class="category">${esc(row.name)}</div>
+        <div class="desc">LK Rebasing PDRB</div>
       </td>
-      <td><span class="status ${ok ? "done" : "pending"}">
-        <span class="dot"></span>${esc(ok ? status : "Belum Upload")}
-      </span></td>
-      <td>${ok
-        ? `<div class="file-name" title="${esc(item["Nama File"])}">${esc(item["Nama File"])}</div>`
-        : "-"}</td>
-      <td>${ok ? formatDate(item["Last Updated"]) : "-"}</td>
-      <td><div class="actions">
-        <button class="btn-light" onclick="openUpload('${esc(c[0])}')">
-          ${ok ? "Ganti File" : "Upload LK"}
-        </button>
-        ${ok ? `<button class="btn-light" onclick="openFile('${esc(item["File URL"])}')">Buka</button>
-        <button class="btn-light" onclick="removeFile('${esc(c[0])}')">Hapus</button>` : ""}
-      </div></td>
+
+      <td>
+        <div class="category" style="font-size:13px">
+          ${esc(row.kabupaten)}
+        </div>
+      </td>
+
+      <td>
+        <span class="status ${ok ? "done" : "pending"}">
+          <span class="dot"></span>
+          ${esc(ok ? status : "Belum Upload")}
+        </span>
+      </td>
+
+      <td>
+        ${ok
+          ? `<div class="file-name" title="${esc(item["Nama File"])}">
+               ${esc(item["Nama File"])}
+             </div>`
+          : "-"
+        }
+      </td>
+
+      <td>
+        ${ok ? formatDate(item["Last Updated"]) : "-"}
+      </td>
+
+      <td>
+        <div class="actions">
+          <button class="btn-light"
+            onclick="openUploadByKey('${safeCode}','${safeKab}')">
+            ${ok ? "Ganti File" : "Upload LK"}
+          </button>
+
+          ${ok
+            ? `<button class="btn-light"
+                 onclick="openFile('${esc(item["File URL"])}')">
+                 Buka
+               </button>
+               <button class="btn-light"
+                 onclick="removeFileByKey('${safeCode}','${safeKab}')">
+                 Hapus
+               </button>`
+            : ""
+          }
+        </div>
+      </td>
     </tr>`;
   }).join("");
 
-  const kabFilter = getSelectedKabupaten();
-  const scoped = allRecords.filter(r => kabFilter==="all" || r["Kabupaten/Kota"]===kabFilter);
-  const uploaded = new Set(
-    scoped
-      .filter(r => r["File URL"])
-      .map(r => r["Subkategori PDRB"])
-  ).size;
+  // Statistik dihitung berdasarkan kombinasi kategori x kab/kota.
+  const kabListForStats =
+    kab === "all" ? getKabupatenList() : [kab];
 
-  const total = categories.length;
+  const total = categories.length * kabListForStats.length;
+
+  const uploaded = allRecords.filter(r => {
+    const categoryExists = categories.some(c =>
+      String(c[0]).trim() === String(r["Subkategori PDRB"] || "").trim()
+    );
+
+    const kabMatch =
+      kab === "all" ||
+      String(r["Kabupaten/Kota"] || "").trim() === String(kab).trim();
+
+    return categoryExists && kabMatch && !!r["File URL"];
+  }).length;
+
   document.getElementById("total").textContent = total;
   document.getElementById("uploaded").textContent = uploaded;
-  document.getElementById("pending").textContent = Math.max(0,total-uploaded);
+  document.getElementById("pending").textContent =
+    Math.max(0, total - uploaded);
+
   document.getElementById("progress").textContent =
-    total ? Math.round(uploaded/total*100)+"%" : "0%";
+    total ? Math.round(uploaded / total * 100) + "%" : "0%";
 
   loading = false;
 }
+
+window.openUploadByKey = function(encodedCode, encodedKab){
+  const code = decodeURIComponent(encodedCode);
+  const kab = decodeURIComponent(encodedKab);
+
+  currentCode = code;
+  selectedFile = null;
+
+  document.getElementById("fileInput").value = "";
+
+  const c = categories.find(x => x[0] === code);
+
+  document.getElementById("modalTitle").textContent =
+    "Upload LK — " + code;
+
+  document.getElementById("modalDesc").textContent =
+    `${c ? c[1] : ""} • ${kab}`;
+
+  document.getElementById("selected").textContent = "";
+  document.getElementById("bar").style.width = "0%";
+
+  // Simpan kabupaten yang sedang diproses.
+  document.getElementById("modal").dataset.kabupaten = kab;
+
+  document.getElementById("modal").classList.add("show");
+};
+
+window.openUpload = function(code){
+  const kab = getSelectedKabupaten();
+
+  if(kab === "all"){
+    alert("Pilih Kabupaten/Kota terlebih dahulu sebelum mengunggah file.");
+    document.getElementById("kabupaten").focus();
+    return;
+  }
+
+  openUploadByKey(
+    encodeURIComponent(code),
+    encodeURIComponent(kab)
+  );
+};
 
 window.openUpload = function(code){
   const kab = getSelectedKabupaten();
@@ -408,9 +542,12 @@ document.getElementById("save").onclick = async()=>{
     return;
   }
 
-  const kab = getSelectedKabupaten();
-  if(kab === "all"){
-    alert("Pilih Kabupaten/Kota terlebih dahulu.");
+  const kab =
+    document.getElementById("modal").dataset.kabupaten ||
+    getSelectedKabupaten();
+
+  if(!kab || kab === "all"){
+    alert("Kabupaten/Kota belum dipilih.");
     return;
   }
 
@@ -420,32 +557,41 @@ document.getElementById("save").onclick = async()=>{
   try{
     saveBtn.disabled = true;
     saveBtn.textContent = "Mengunggah...";
-    bar.style.width = "15%";
+    bar.style.width = "10%";
 
     const base64 = await fileToBase64(selectedFile);
     bar.style.width = "45%";
 
-    const existing = getRecord(currentCode);
+    // Cari record HANYA untuk kombinasi kategori + kabupaten ini.
+    const existing = getRecord(currentCode, kab);
 
     const payload = {
       action: existing?.row ? "update" : "create",
       row: existing?.row || undefined,
+
       "Subkategori PDRB": currentCode,
       "Kabupaten/Kota": kab,
       "Status": "Aktif",
       "Nama File": selectedFile.name,
       "Last Updated": new Date().toISOString(),
-      "fileBase64": base64,
-      "fileMimeType": selectedFile.type || "application/octet-stream",
-      "fileName": selectedFile.name
+
+      fileBase64: base64,
+      fileMimeType: selectedFile.type || "application/octet-stream",
+      fileName: selectedFile.name
     };
 
     await apiPost(payload);
 
     bar.style.width = "100%";
+
     closeModal();
     await loadData();
-    alert("File berhasil diunggah dan data tersimpan di Google Sheet.");
+
+    alert(
+      `File LK berhasil disimpan untuk:\n\n` +
+      `${currentCode} — ${kab}`
+    );
+
   }catch(err){
     console.error(err);
     alert("Upload gagal: " + err.message);
@@ -453,6 +599,58 @@ document.getElementById("save").onclick = async()=>{
     saveBtn.disabled = false;
     saveBtn.textContent = "Simpan Upload";
   }
+};
+
+window.openFile = function(url){
+  if(url) window.open(url,"_blank","noopener,noreferrer");
+};
+
+window.removeFileByKey = async function(encodedCode, encodedKab){
+  const code = decodeURIComponent(encodedCode);
+  const kab = decodeURIComponent(encodedKab);
+
+  const item = getRecord(code, kab);
+
+  if(!item?.row){
+    alert("Data tidak ditemukan.");
+    return;
+  }
+
+  const c = categories.find(x=>x[0]===code);
+
+  if(!confirm(
+    `Hapus file LK untuk:\n\n` +
+    `${code} — ${c?.[1] || ""}\n` +
+    `${kab}\n\n` +
+    `Data pada Google Sheet akan dihapus.`
+  )) return;
+
+  try{
+    await apiPost({
+      action:"delete",
+      row:item.row
+    });
+
+    await loadData();
+
+  }catch(err){
+    console.error(err);
+    alert("Gagal menghapus data: " + err.message);
+  }
+};
+
+window.removeFile = async function(code){
+  const kab = getSelectedKabupaten();
+
+  if(kab === "all"){
+    alert("Pilih Kabupaten/Kota terlebih dahulu.");
+    return;
+  }
+
+  await removeFileByKey(
+    encodeURIComponent(code),
+    encodeURIComponent(kab)
+  );
 };
 
 window.openFile = function(url){
@@ -499,7 +697,9 @@ document.getElementById("resetBtn").onclick = async()=>{
 
 document.getElementById("exportBtn").onclick = ()=>{
   const kab = getSelectedKabupaten();
-  const records = allRecords.filter(r => kab==="all" || r["Kabupaten/Kota"]===kab);
+
+  const kabList =
+    kab === "all" ? getKabupatenList() : [kab];
 
   const lines = [[
     "Subkategori PDRB",
@@ -511,26 +711,33 @@ document.getElementById("exportBtn").onclick = ()=>{
   ].join(",")];
 
   categories.forEach(c=>{
-    const i = records.find(r=>r["Subkategori PDRB"]===c[0]);
-    lines.push([
-      c[0],
-      i?.["Kabupaten/Kota"] || (kab==="all" ? "" : kab),
-      i?.["Status"] || "Belum Upload",
-      i?.["Nama File"] || "",
-      i?.["File URL"] || "",
-      i?.["Last Updated"] || ""
-    ].map(x=>`"${String(x ?? "").replaceAll('"','""')}"`).join(","));
+    kabList.forEach(k=>{
+      const i = getRecord(c[0], k);
+
+      lines.push([
+        c[0],
+        k,
+        i?.["Status"] || "Belum Upload",
+        i?.["Nama File"] || "",
+        i?.["File URL"] || "",
+        i?.["Last Updated"] || ""
+      ].map(x =>
+        `"${String(x ?? "").replaceAll('"','""')}"`
+      ).join(","));
+    });
   });
 
   const blob = new Blob(
     ["\ufeff" + lines.join("\n")],
     {type:"text/csv;charset=utf-8"}
   );
+
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "rekap_monitoring_lk_rebasing_pdrb.csv";
   a.click();
-  URL.revokeObjectURL(a.href);
+
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
 /* Mulai aplikasi */
