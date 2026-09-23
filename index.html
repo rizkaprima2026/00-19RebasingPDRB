@@ -126,24 +126,45 @@
    ========================================================= */
 const API_URL = "https://script.google.com/macros/s/AKfycbzHreKUL8IcpLR0NCSLdeD4EGQ489c8WeiKoJnkqoWFNlWBeWls2a34HhIkIeZ_3hamYA/exec";
 
+/*
+ * PENTING: nilai kolom pertama di sini HARUS sama persis dengan
+ * teks "Subkategori PDRB" yang dipakai di Google Sheet
+ * (lihat struktur_database_PDRB.xlsx), yaitu format "KODE - Nama".
+ * Kolom kedua ("code") hanya dipakai untuk tampilan singkat KODE
+ * di tabel.
+ */
 const categories = [
-  ["A - Pertanian, Kehutanan, dan Perikanan", "A", "Pertanian, Kehutanan, dan Perikanan"],
-  ["B - Pertambangan dan Penggalian", "B", "Pertambangan dan Penggalian"],
-  ["C - Industri Pengolahan", "C", "Industri Pengolahan"],
-  ["D - Pengadaan Listrik dan Gas", "D", "Pengadaan Listrik dan Gas"],
-  ["E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang", "E", "Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang"],
-  ["F - Konstruksi", "F", "Konstruksi"],
-  ["G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor", "G", "Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor"],
-  ["H - Transportasi dan Pergudangan", "H", "Transportasi dan Pergudangan"],
-  ["I - Penyediaan Akomodasi dan Makan Minum", "I", "Penyediaan Akomodasi dan Makan Minum"],
-  ["J - Informasi dan Komunikasi", "J", "Informasi dan Komunikasi"],
-  ["K - Jasa Keuangan dan Asuransi", "K", "Jasa Keuangan dan Asuransi"],
-  ["L - Real Estat", "L", "Real Estat"],
-  ["M,N - Jasa Perusahaan", "M,N", "Jasa Perusahaan"],
-  ["O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib", "O", "Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib"],
-  ["P - Jasa Pendidikan", "P", "Jasa Pendidikan"],
-  ["Q - Jasa Kesehatan dan Kegiatan Sosial", "Q", "Jasa Kesehatan dan Kegiatan Sosial"],
-  ["R,S,T,U - Jasa lainnya", "R,S,T,U", "Jasa lainnya"]
+  ["A - Pertanian, Kehutanan, dan Perikanan","A","Pertanian, Kehutanan, dan Perikanan"],
+  ["B - Pertambangan dan Penggalian","B","Pertambangan dan Penggalian"],
+  ["C - Industri Pengolahan","C","Industri Pengolahan"],
+  ["D - Pengadaan Listrik dan Gas","D","Pengadaan Listrik dan Gas"],
+  ["E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang","E","Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang"],
+  ["F - Konstruksi","F","Konstruksi"],
+  ["G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor","G","Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor"],
+  ["H - Transportasi dan Pergudangan","H","Transportasi dan Pergudangan"],
+  ["I - Penyediaan Akomodasi dan Makan Minum","I","Penyediaan Akomodasi dan Makan Minum"],
+  ["J - Informasi dan Komunikasi","J","Informasi dan Komunikasi"],
+  ["K - Jasa Keuangan dan Asuransi","K","Jasa Keuangan dan Asuransi"],
+  ["L - Real Estat","L","Real Estat"],
+  ["M,N - Jasa Perusahaan","M,N","Jasa Perusahaan"],
+  ["O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib","O","Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib"],
+  ["P - Jasa Pendidikan","P","Jasa Pendidikan"],
+  ["Q - Jasa Kesehatan dan Kegiatan Sosial","Q","Jasa Kesehatan dan Kegiatan Sosial"],
+  ["R,S,T,U - Jasa lainnya","R,S,T,U","Jasa lainnya"]
+];
+
+/*
+ * Daftar tetap 7 Kabupaten/Kota (harus sama persis dengan Sheet)
+ * supaya dropdown tetap terisi walau data Sheet masih kosong.
+ */
+const KABUPATEN_KOTA = [
+  "Kabupaten Bangka",
+  "Kabupaten Belitung",
+  "Kabupaten Bangka Barat",
+  "Kabupaten Bangka Tengah",
+  "Kabupaten Bangka Selatan",
+  "Kabupaten Belitung Timur",
+  "Kota Pangkalpinang"
 ];
 
 let state = {};
@@ -237,7 +258,10 @@ function populateKabupaten(){
   if(!select) return;
 
   const current = select.value;
-  const kab = [...new Set(allRecords.map(r=>r["Kabupaten/Kota"]).filter(Boolean))].sort();
+  // Gabungkan daftar tetap dengan kabupaten/kota lain yang mungkin
+  // muncul di Sheet, supaya dropdown tetap terisi walau Sheet kosong.
+  const fromData = allRecords.map(r=>r["Kabupaten/Kota"]).filter(Boolean);
+  const kab = [...new Set([...KABUPATEN_KOTA, ...fromData])];
 
   select.innerHTML =
     `<option value="all">Semua Kabupaten/Kota</option>` +
@@ -250,11 +274,13 @@ function getSelectedKabupaten(){
   return document.getElementById("kabupaten")?.value || "all";
 }
 
-function getRecord(category, kab){
-  const categoryName = Array.isArray(category) ? category[0] : category;
-  const selectedKab = kab || getSelectedKabupaten();
-  if(selectedKab === "all") return null;
-  return state[categoryName + "||" + selectedKab] || null;
+function getRecord(code){
+  const kab = getSelectedKabupaten();
+  if(kab === "all"){
+    // Jika semua kab/kota dipilih, cari record pertama untuk kategori tersebut.
+    return allRecords.find(r => (r["Subkategori PDRB"] || "") === code) || null;
+  }
+  return state[code + "||" + kab] || null;
 }
 
 function render(){
@@ -262,79 +288,65 @@ function render(){
   const f = document.getElementById("filter").value;
   const kab = getSelectedKabupaten();
 
-  // Database memiliki 17 kategori x 7 kabupaten/kota = 119 kombinasi.
-  // Jika "Semua Kabupaten/Kota" dipilih, setiap kategori ditampilkan
-  // dengan satu baris per kabupaten/kota sehingga setiap LK memiliki
-  // menu Upload yang terpisah.
-  const rows = [];
-
-  categories.forEach(c=>{
-    const categoryName = c[0];
-    const categoryCode = c[1];
-    const categoryDesc = c[2];
-
+  const rows = categories.filter(c=>{
     const matchesText =
-      categoryName.toLowerCase().includes(q) ||
-      categoryCode.toLowerCase().includes(q) ||
-      categoryDesc.toLowerCase().includes(q);
+      c[1].toLowerCase().includes(q) ||
+      c[2].toLowerCase().includes(q);
 
-    if(!matchesText) return;
+    const records = allRecords.filter(r =>
+      (r["Subkategori PDRB"] || "") === c[0] &&
+      (kab === "all" || (r["Kabupaten/Kota"] || "") === kab)
+    );
 
-    const kabs = kab === "all"
-      ? [...new Set(allRecords
-          .filter(r => (r["Subkategori PDRB"] || "") === categoryName)
-          .map(r => r["Kabupaten/Kota"])
-          .filter(Boolean))]
-      : [kab];
+    const uploaded = records.some(r =>
+      ["aktif","sudah upload","diperbarui"].includes(
+        String(r["Status"] || "").toLowerCase()
+      ) && r["File URL"]
+    );
 
-    // Fallback agar menu tetap muncul meskipun database belum memiliki baris.
-    const targetKabs = kabs.length ? kabs : (kab === "all" ? [] : [kab]);
-
-    targetKabs.forEach(k=>{
-      const item = getRecord(c, k);
-      const ok = !!(item && item["File URL"]);
-      const status = item?.["Status"] || (ok ? "Aktif" : "Belum Upload");
-
-      if(f==="uploaded" && !ok) return;
-      if(f==="pending" && ok) return;
-
-      rows.push({c, kab:k, item, ok, status});
-    });
+    return matchesText &&
+      (f==="all" || (f==="uploaded" && uploaded) || (f==="pending" && !uploaded));
   });
 
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
 
-  document.getElementById("tbody").innerHTML = rows.map(({c,kab:itemKab,item,ok,status})=>{
+  document.getElementById("tbody").innerHTML = rows.map(c=>{
+    const item = getRecord(c[0]);
+    const ok = !!(item && item["File URL"]);
+    const status = item?.["Status"] || (ok ? "Aktif" : "Belum Upload");
+
     return `<tr>
       <td class="code">${esc(c[1])}</td>
       <td>
         <div class="category">${esc(c[2])}</div>
-        <div class="desc">${esc(itemKab)}</div>
+        <div class="desc">${esc(item?.["Kabupaten/Kota"] || (kab==="all" ? "Pilih Kabupaten/Kota untuk upload" : kab))}</div>
       </td>
       <td><span class="status ${ok ? "done" : "pending"}">
         <span class="dot"></span>${esc(ok ? status : "Belum Upload")}
       </span></td>
       <td>${ok
-        ? `<div class="file-name" title="${esc(item["Nama File"] || "")}">${esc(item["Nama File"] || "-")}</div>`
+        ? `<div class="file-name" title="${esc(item["Nama File"])}">${esc(item["Nama File"])}</div>`
         : "-"}</td>
       <td>${ok ? formatDate(item["Last Updated"]) : "-"}</td>
       <td><div class="actions">
-        <button class="btn-light" onclick="openUpload(${JSON.stringify(c[0])},${JSON.stringify(itemKab)})">
+        <button class="btn-light" onclick="openUpload('${esc(c[0])}')">
           ${ok ? "Ganti File" : "Upload LK"}
         </button>
-        ${ok ? `<button class="btn-light" onclick="openFile(${JSON.stringify(item["File URL"])})">Buka</button>
-        <button class="btn-light" onclick="removeFile(${JSON.stringify(c[0])},${JSON.stringify(itemKab)})">Hapus</button>` : ""}
+        ${ok ? `<button class="btn-light" onclick="openFile('${esc(item["File URL"])}')">Buka</button>
+        <button class="btn-light" onclick="removeFile('${esc(c[0])}')">Hapus</button>` : ""}
       </div></td>
     </tr>`;
   }).join("");
 
-  const scoped = allRecords.filter(r => kab==="all" || r["Kabupaten/Kota"]===kab);
-  const uploaded = scoped.filter(r =>
-    r["File URL"] &&
-    categories.some(c => c[0] === r["Subkategori PDRB"])
-  ).length;
+  const kabFilter = getSelectedKabupaten();
+  const scoped = allRecords.filter(r => kabFilter==="all" || r["Kabupaten/Kota"]===kabFilter);
+  const uploaded = new Set(
+    scoped
+      .filter(r => r["File URL"])
+      .map(r => r["Subkategori PDRB"])
+  ).size;
 
-  const total = kab === "all" ? categories.length * 7 : categories.length;
+  const total = categories.length;
   document.getElementById("total").textContent = total;
   document.getElementById("uploaded").textContent = uploaded;
   document.getElementById("pending").textContent = Math.max(0,total-uploaded);
@@ -344,21 +356,22 @@ function render(){
   loading = false;
 }
 
-window.openUpload = function(categoryName, kab){
-  if(!kab || kab === "all"){
+window.openUpload = function(code){
+  const kab = getSelectedKabupaten();
+  if(kab === "all"){
     alert("Pilih Kabupaten/Kota terlebih dahulu sebelum mengunggah file.");
     document.getElementById("kabupaten").focus();
     return;
   }
 
-  currentCode = categoryName;
+  currentCode = code;
   selectedFile = null;
   document.getElementById("fileInput").value = "";
 
-  const c = categories.find(x=>x[0]===categoryName);
-  document.getElementById("modalTitle").textContent = "Upload LK — " + (c ? c[1] : "");
+  const c = categories.find(x=>x[0]===code);
+  document.getElementById("modalTitle").textContent = "Upload LK — " + (c ? c[1] : code);
   document.getElementById("modalDesc").textContent =
-    `${c ? c[2] : categoryName} • ${kab}`;
+    `${c ? c[2] : ""} • ${kab}`;
   document.getElementById("selected").textContent = "";
   document.getElementById("bar").style.width = "0%";
   document.getElementById("modal").classList.add("show");
@@ -436,7 +449,7 @@ document.getElementById("save").onclick = async()=>{
     const base64 = await fileToBase64(selectedFile);
     bar.style.width = "45%";
 
-    const existing = getRecord(currentCode, kab);
+    const existing = getRecord(currentCode);
 
     const payload = {
       action: existing?.row ? "update" : "create",
@@ -470,8 +483,9 @@ window.openFile = function(url){
   if(url) window.open(url,"_blank","noopener,noreferrer");
 };
 
-window.removeFile = async function(code, kab){
-  const item = getRecord(code, kab);
+window.removeFile = async function(code){
+  const kab = getSelectedKabupaten();
+  const item = getRecord(code);
 
   if(!item?.row){
     alert("Data tidak ditemukan.");
@@ -544,6 +558,7 @@ document.getElementById("exportBtn").onclick = ()=>{
 };
 
 /* Mulai aplikasi */
+populateKabupaten();
 loadData();
 </script>
 
