@@ -101,6 +101,12 @@
         <div><h2 id="modalTitle" style="margin:0 0 5px">Upload LK</h2><div class="hint" id="modalDesc"></div></div>
         <button class="close" id="closeModal">Tutup</button>
       </div>
+      <div style="margin-top:14px">
+        <label class="hint" for="modalKabupaten" style="display:block;margin-bottom:6px;font-weight:700">Kabupaten/Kota</label>
+        <select id="modalKabupaten" style="width:100%">
+          <option value="">Pilih Kabupaten/Kota...</option>
+        </select>
+      </div>
       <div class="drop" id="drop">
         <strong>Tarik file ke area ini</strong>
         <span class="hint">atau pilih file dari perangkat. Format yang disarankan: PDF, XLSX, XLS, DOCX. Maksimal 8 MB per file.</span>
@@ -274,6 +280,11 @@ function getSelectedKabupaten(){
   return document.getElementById("kabupaten")?.value || "all";
 }
 
+function getRecordByKab(code, kab){
+  if(!kab) return null;
+  return state[code + "||" + kab] || null;
+}
+
 function getRecord(code){
   const kab = getSelectedKabupaten();
   if(kab === "all"){
@@ -356,22 +367,29 @@ function render(){
   loading = false;
 }
 
-window.openUpload = function(code){
-  const kab = getSelectedKabupaten();
-  if(kab === "all"){
-    alert("Pilih Kabupaten/Kota terlebih dahulu sebelum mengunggah file.");
-    document.getElementById("kabupaten").focus();
-    return;
-  }
+function populateModalKabupaten(preselect){
+  const select = document.getElementById("modalKabupaten");
+  const fromData = allRecords.map(r=>r["Kabupaten/Kota"]).filter(Boolean);
+  const kab = [...new Set([...KABUPATEN_KOTA, ...fromData])];
 
+  select.innerHTML =
+    `<option value="">Pilih Kabupaten/Kota...</option>` +
+    kab.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+
+  select.value = kab.includes(preselect) ? preselect : "";
+}
+
+window.openUpload = function(code){
   currentCode = code;
   selectedFile = null;
   document.getElementById("fileInput").value = "";
 
+  const topKab = getSelectedKabupaten();
+  populateModalKabupaten(topKab === "all" ? "" : topKab);
+
   const c = categories.find(x=>x[0]===code);
   document.getElementById("modalTitle").textContent = "Upload LK — " + (c ? c[1] : code);
-  document.getElementById("modalDesc").textContent =
-    `${c ? c[2] : ""} • ${kab}`;
+  document.getElementById("modalDesc").textContent = c ? c[2] : "";
   document.getElementById("selected").textContent = "";
   document.getElementById("bar").style.width = "0%";
   document.getElementById("modal").classList.add("show");
@@ -432,9 +450,10 @@ document.getElementById("save").onclick = async()=>{
     return;
   }
 
-  const kab = getSelectedKabupaten();
-  if(kab === "all"){
+  const kab = document.getElementById("modalKabupaten").value;
+  if(!kab){
     alert("Pilih Kabupaten/Kota terlebih dahulu.");
+    document.getElementById("modalKabupaten").focus();
     return;
   }
 
@@ -449,7 +468,7 @@ document.getElementById("save").onclick = async()=>{
     const base64 = await fileToBase64(selectedFile);
     bar.style.width = "45%";
 
-    const existing = getRecord(currentCode);
+    const existing = getRecordByKab(currentCode, kab);
 
     const payload = {
       action: existing?.row ? "update" : "create",
@@ -493,7 +512,7 @@ window.removeFile = async function(code){
   }
 
   const c = categories.find(x=>x[0]===code);
-  if(!confirm(`Hapus data file LK untuk ${code} — ${c?.[1]} (${kab})?`)) return;
+  if(!confirm(`Hapus data file LK untuk ${c?.[1] || code} — ${c?.[2] || ""} (${kab})?`)) return;
 
   try{
     await apiPost({
